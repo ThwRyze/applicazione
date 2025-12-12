@@ -41,7 +41,6 @@ def genera_id():
 def carica_dati():
     sheet = connetti_google_sheet()
     
-    # Controlla se il foglio è completamente vuoto
     if not sheet.get_all_values():
         intestazioni = ["ID", "Data", "Tipo", "Categoria", "Importo", "Note"]
         sheet.append_row(intestazioni)
@@ -50,17 +49,22 @@ def carica_dati():
     try:
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
-        
+
         if df.empty:
-             return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
-             
-        # Conversione Date robusta
-        df["Data"] = pd.to_datetime(df["Data"])
+            return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
+
+        # Conversione date robusta
+        df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+
+        # Rimuove righe con date invalide
+        df = df.dropna(subset=["Data"])
+
         return df
-        
+
     except Exception as e:
         st.warning(f"Database vuoto o illeggibile, inizio da zero. ({e})")
         return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
+
 
 def salva_dati_su_cloud(df):
     try:
@@ -207,3 +211,4 @@ if not df_filtrato.empty:
                 st.rerun()
 else:
     st.info("Nessun dato trovato. Inserisci il primo movimento!")
+

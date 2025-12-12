@@ -4,16 +4,29 @@ import plotly.express as px
 import datetime
 import uuid
 import gspread
+from google.oauth2.service_account import Credentials # Nuova libreria sicura
 
 # --- Configurazione Pagina ---
 st.set_page_config(page_title="Gestore Finanze Cloud", layout="wide", page_icon="☁️")
 
-# --- CONNESSIONE A GOOGLE SHEETS (MODERNA) ---
+# --- CONNESSIONE A GOOGLE SHEETS (METODO PRO) ---
 def connetti_google_sheet():
     try:
-        # Usa il metodo nativo di gspread per leggere i secrets (molto più stabile)
-        creds = dict(st.secrets["gcp_service_account"])
-        client = gspread.service_account_from_dict(creds)
+        # Definiamo i permessi espliciti (Scope)
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # Creiamo le credenziali usando la libreria ufficiale Google
+        # st.secrets["gcp_service_account"] è il dizionario che hai nei Secrets
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=scopes
+        )
+        
+        # Autorizziamo gspread con queste credenziali manuali
+        client = gspread.authorize(creds)
         
         # Apre il foglio
         sheet = client.open("GestioneSpese").sheet1 
@@ -30,43 +43,36 @@ def carica_dati():
     
     # Controlla se il foglio è completamente vuoto
     if not sheet.get_all_values():
-        # Se è vuoto, inizializziamo noi le intestazioni!
         intestazioni = ["ID", "Data", "Tipo", "Categoria", "Importo", "Note"]
         sheet.append_row(intestazioni)
         return pd.DataFrame(columns=intestazioni)
 
-    # Scarica i dati
     try:
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # Se il dataframe è vuoto o mancano colonne (caso raro), forziamo la struttura
         if df.empty:
              return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
              
-        # Conversione Date
+        # Conversione Date robusta
         df["Data"] = pd.to_datetime(df["Data"])
         return df
         
     except Exception as e:
-        # Se c'è un errore di parsing (es. foglio sporco), restituisce vuoto per non crashare
-        st.warning(f"Database vuoto o illeggibile, inizio da zero. Dettaglio: {e}")
+        st.warning(f"Database vuoto o illeggibile, inizio da zero. ({e})")
         return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
 
 def salva_dati_su_cloud(df):
     try:
         sheet = connetti_google_sheet()
         
-        # Convertiamo le date in stringhe (Google Sheets odia i datetime di Python)
         df_export = df.copy()
         df_export["Data"] = df_export["Data"].dt.strftime('%Y-%m-%d')
         
-        # Sostituiamo tutto il contenuto
-        # [columns] + [values] crea la griglia completa
         dati_completi = [df_export.columns.values.tolist()] + df_export.values.tolist()
         
-        sheet.clear() # Pulisce tutto
-        sheet.update(range_name='A1', values=dati_completi) # Scrive tutto
+        sheet.clear()
+        sheet.update(range_name='A1', values=dati_completi)
         return True
     except Exception as e:
         st.error(f"Errore salvataggio Cloud: {e}")
@@ -75,7 +81,7 @@ def salva_dati_su_cloud(df):
 # --- LOGICA APP ---
 df = carica_dati()
 
-# --- SIDEBAR: Inserimento ---
+# --- SIDEBAR ---
 st.sidebar.title("☁️ Comandi Cloud")
 st.sidebar.subheader("➕ Nuovo Movimento")
 
@@ -103,7 +109,7 @@ with st.sidebar.form("form_inserimento", clear_on_submit=True):
             "Importo": [importo_input],
             "Note": [note_input]
         })
-        # Concatenazione sicura
+        
         if df.empty:
             df = nuovo_record
         else:
@@ -116,7 +122,7 @@ with st.sidebar.form("form_inserimento", clear_on_submit=True):
 
 st.sidebar.markdown("---")
 
-# --- SIDEBAR: Filtri ---
+# --- FILTRI ---
 st.sidebar.subheader("📅 Filtra Dati")
 anno_corrente = datetime.date.today().year
 
@@ -135,7 +141,6 @@ mesi_dict = {1:"Gennaio", 2:"Febbraio", 3:"Marzo", 4:"Aprile", 5:"Maggio", 6:"Gi
              7:"Luglio", 8:"Agosto", 9:"Settembre", 10:"Ottobre", 11:"Novembre", 12:"Dicembre"}
 mese_selezionato = st.sidebar.selectbox("Mese", ["Tutti"] + list(mesi_dict.values()))
 
-# Filtri
 if not df.empty:
     df_filtrato = df[df["Data"].dt.year == anno_selezionato]
     if mese_selezionato != "Tutti":
@@ -188,7 +193,6 @@ if not df_filtrato.empty:
         with st.spinner("Sincronizzazione con Google..."):
             df_db_completo = carica_dati()
             
-            # Logica di fusione DB
             ids_da_rimuovere = df_filtrato["ID"].tolist()
             df_db_aggiornato = df_db_completo[~df_db_completo["ID"].isin(ids_da_rimuovere)]
             

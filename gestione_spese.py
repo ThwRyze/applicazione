@@ -30,21 +30,30 @@ def genera_id():
     return str(uuid.uuid4())[:8]
 
 def carica_dati():
+    # Creiamo un DataFrame vuoto di default con i tipi corretti
+    df = pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
+    
     try:
         sheet = connetti_google_sheet()
-        # Scarica tutti i dati e li mette in un DataFrame
         data = sheet.get_all_records()
-        df = pd.DataFrame(data)
         
-        # Se il foglio è vuoto (ha solo le intestazioni), crea un df vuoto ma con le colonne giuste
-        if df.empty:
-            return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
+        # Se ci sono dati, aggiorniamo il df
+        if data:
+            df = pd.DataFrame(data)
             
-        df["Data"] = pd.to_datetime(df["Data"])
-        return df
     except Exception as e:
-        st.error(f"Errore di connessione a Google Sheets: {e}")
-        return pd.DataFrame(columns=["ID", "Data", "Tipo", "Categoria", "Importo", "Note"])
+        # Se fallisce la connessione, stampiamo l'errore ma continuiamo con il df vuoto
+        st.error(f"⚠️ Errore connessione: {e}")
+    
+    # QUESTO È IL PASSAGGIO CHE MANCAVA:
+    # Forziamo la conversione in data anche se il df è vuoto o appena caricato
+    if not df.empty:
+        df["Data"] = pd.to_datetime(df["Data"])
+    else:
+        # Se è vuoto, diciamo a pandas che la colonna Data deve ospitare date
+        df["Data"] = pd.to_datetime(df["Data"])
+
+    return df
 
 def salva_dati_su_cloud(df):
     try:
@@ -178,4 +187,5 @@ if not df_filtrato.empty:
                 st.success("Google Sheets aggiornato!")
                 st.rerun()
 else:
+
     st.info("Nessun dato.")

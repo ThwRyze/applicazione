@@ -256,3 +256,4 @@ if not df_filtrato.empty:
                 st.rerun()
 else:
     st.info("Nessun dato trovato per il periodo selezionato. Usa la barra laterale per aggiungere spese!")
+

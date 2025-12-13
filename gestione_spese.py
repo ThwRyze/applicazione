@@ -4,35 +4,27 @@ import plotly.express as px
 import datetime
 import uuid
 import gspread
-from google.oauth2.service_account import Credentials # <--- FONDAMENTALE
 
 # --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Gestore Finanze Cloud", layout="wide", page_icon="☁️")
 
-# --- 2. CONNESSIONE (Metodo "Manuale" per bypassare conflitti) ---
+# --- 2. CONNESSIONE DIRETTA DA FILE (Metodo Infallibile Locale) ---
 def connetti_google_sheet():
     try:
-        # Definiamo noi gli "Scope" (i permessi) manualmente
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        # Cerchiamo il file credentials.json nella cartella
+        # Se siamo in locale userà questo, se siamo online userà i secrets (opzionale, ma ora concentriamoci sul PC)
+        filename = "credentials.json"
         
-        # 1. Prendiamo i dati dal file secrets.toml
-        # Usiamo dict() per essere sicuri che sia un dizionario puro
-        creds_dict = dict(st.secrets["gcp_service_account"])
+        # Questa funzione di gspread legge direttamente il file JSON fisico
+        # Bypassa qualsiasi errore di conversione di Streamlit
+        client = gspread.service_account(filename=filename)
         
-        # 2. Creiamo le credenziali usando la libreria google-auth (NUOVA)
-        # Questo impedisce al sistema di usare per sbaglio la vecchia libreria
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        
-        # 3. Autorizziamo gspread
-        client = gspread.authorize(creds)
-        
-        # 4. Apriamo il foglio
         sheet = client.open("GestioneSpese").sheet1 
         return sheet
         
+    except FileNotFoundError:
+        st.error("⚠️ File 'credentials.json' non trovato! Assicurati di averlo creato nella cartella Spese.")
+        st.stop()
     except Exception as e:
         st.error(f"⚠️ Errore critico connessione: {e}")
         st.stop()
@@ -47,7 +39,6 @@ def carica_dati():
     try:
         sheet = connetti_google_sheet()
         
-        # Se foglio vuoto, inizializza
         if not sheet.get_all_values():
             sheet.append_row(cols)
             return df
@@ -57,9 +48,8 @@ def carica_dati():
             df = pd.DataFrame(data)
             
     except Exception as e:
-        st.warning(f"Avvio con database vuoto locale. ({e})")
+        st.warning(f"Avvio con database vuoto. ({e})")
 
-    # Gestione Date Robusta
     if "Data" in df.columns:
         df["Data"] = pd.to_datetime(df["Data"], errors='coerce')
         df = df.dropna(subset=["Data"])
@@ -69,7 +59,6 @@ def carica_dati():
 def salva_dati_su_cloud(df):
     try:
         sheet = connetti_google_sheet()
-        
         df_export = df.copy()
         df_export["Data"] = df_export["Data"].dt.strftime('%Y-%m-%d')
         dati_completi = [df_export.columns.values.tolist()] + df_export.values.tolist()
@@ -84,7 +73,6 @@ def salva_dati_su_cloud(df):
 # --- 3. APP ---
 df = carica_dati()
 
-# SIDEBAR
 st.sidebar.title("☁️ Comandi")
 st.sidebar.subheader("➕ Aggiungi")
 
@@ -118,7 +106,6 @@ with st.sidebar.form("form_inserimento", clear_on_submit=True):
                 st.success("Salvato!")
                 st.rerun()
 
-# DASHBOARD E FILTRI
 st.sidebar.markdown("---")
 anno_corrente = datetime.date.today().year
 if not df.empty and "Data" in df.columns:
@@ -152,7 +139,6 @@ if not df_filtrato.empty:
 
     if st.button("💾 Salva Modifiche"):
         df_db = carica_dati()
-        # Logica semplice: Rimuovi i vecchi di quest'anno e metti i nuovi
         ids_visualizzati = df_filtrato["ID"].tolist()
         df_db = df_db[~df_db["ID"].isin(ids_visualizzati)]
         
